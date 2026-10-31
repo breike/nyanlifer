@@ -1,0 +1,19 @@
+# Сборка и runtime
+target/
+resources/public/js/
+node_modules/
+.shadow-cljs/
+
+# Данные (локальная БД — не в репозиторий)
+data/
+*.db
+*.sqlite
+
+# Clojure/lein
+.nrepl-port
+.lein-*
+*.class
+
+# Прочее
+*.log
+.DS_Store

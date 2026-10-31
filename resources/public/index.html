@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>nyanlifer</title>
+  <style>
+    body { font-family: system-ui, sans-serif; margin: 0; background: #f5f6f8; color: #1a1a1a; }
+    .container { max-width: 960px; margin: 0 auto; padding: 24px; }
+    h1 { font-size: 1.5rem; }
+    .tabs { display: flex; gap: 8px; margin: 16px 0; }
+    .tabs button { padding: 8px 16px; border: 1px solid #ccc; background: #fff; cursor: pointer; border-radius: 6px; }
+    .tabs button.active { background: #2563eb; color: #fff; border-color: #2563eb; }
+    .card { background: #fff; border: 1px solid #e5e7eb; border-radius: 8px; padding: 16px; margin-bottom: 12px; }
+    .tag { display: inline-block; background: #eef2ff; color: #3730a3; border-radius: 9999px; padding: 2px 10px; font-size: 0.8rem; margin: 2px; }
+    .muted { color: #6b7280; font-size: 0.85rem; }
+    input, textarea { width: 100%; padding: 8px; border: 1px solid #d1d5db; border-radius: 6px; margin: 4px 0; box-sizing: border-box; }
+    button.primary { background: #2563eb; color: white; border: none; padding: 8px 16px; border-radius: 6px; cursor: pointer; }
+    button.danger { background: #dc2626; color: white; border: none; padding: 4px 10px; border-radius: 6px; cursor: pointer; }
+    .filter { display: flex; gap: 8px; align-items: center; margin: 12px 0; }
+    select { padding: 8px; border-radius: 6px; border: 1px solid #d1d5db; }
+    .error { background: #fef2f2; color: #991b1b; padding: 8px 12px; border-radius: 6px; margin: 8px 0; }
+    .login-box { max-width: 360px; margin: 80px auto; }
+    .nav { display: flex; justify-content: space-between; align-items: center; }
+    .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+    @media (max-width: 700px) { .two-col { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+  <div id="app"></div>
+  <script src="/js/main.js"></script>
+</body>
+</html>

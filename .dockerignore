@@ -1,0 +1,8 @@
+# Сборка в контейнере — не тащим лишнее
+node_modules
+target
+data
+.git
+.shadow-cljs
+.nrepl-port
+*.log
