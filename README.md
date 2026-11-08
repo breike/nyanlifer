@@ -12,7 +12,9 @@ CalDAV-сервером по опциональным кредам. Без кр�
 
 ## Возможности
 
-- **Заметки** — CRUD, полнотекстовый поиск (`?q=`), связь с событием (`event_id`).
+- **Заметки** — CRUD, полнотекстовый поиск (`?q=`), связь с событием (`event_id`),
+  **markdown**: API хранит markdown, отдаёт вместе с ним и чистый HTML
+  (`body_html`).
 - **События** — создаются локально в SQLite (ядро календаря, без внешних
   зависимостей); при заданных кредах дублируются в Яндекс.Календарь
   (CalDAV PROPFIND/PUT, WebDAV) опционально.
@@ -99,7 +101,11 @@ lein run
 | PUT | `/notes/{id}` | частичное обновление `{title?, body?, event_id?, tags?}` |
 | DELETE | `/notes/{id}` | удалить |
 
-Ответ заметки: `{id, title, body, event_id, tags, created_at, updated_at}`.
+Ответ заметки: `{id, title, body, body_html, event_id, tags, created_at,
+updated_at}`. `body` — исходный markdown (то, что прислали), `body_html` —
+отрендеренный и очищенный HTML (jsoup Safelist: script/iframe/onclick/
+javascript: вырезаются). API принимает markdown, хранит markdown, отдаёт и
+markdown, и HTML.
 
 ### События (календарь)
 
@@ -230,6 +236,7 @@ src/yc/
   auth.clj      — register/login/logout/verify, токены
   tags.clj      — теги: CRUD, привязка к заметкам/событиям
   notes.clj     — заметки: CRUD + event_id + поиск + теги
+  markdown.clj  — серверный рендер markdown → HTML (markdown-clj + jsoup)
   calendar.clj  — ядро календаря: события в SQLite, теги, поиск, связь с заметками (самодостаточно)
   integrations/
     yandex.clj  — модуль интеграции с Яндекс.Календарём (CalDAV PROPFIND/PUT/DELETE, ICS, креды)

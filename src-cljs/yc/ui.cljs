@@ -4,6 +4,22 @@
             [cljs.core.async :refer [go <!]]
             [cljs-http.client :as http]))
 
+;; ---------- markdown preview (только для live-preview при редактировании) ----------
+
+;; готовые заметки рендерит сервер (body_html); превью несохранённой заметки
+;; рендерим клиентом (markdown-it + DOMPurify)
+(def ^:private MarkdownIt (js/require "markdown-it"))
+(def ^:private createDOMPurify (.-default (js/require "dompurify")))
+(def ^:private preview-parser (MarkdownIt. #js {:html false :linkify true}))
+(def ^:private preview-sanitizer (createDOMPurify js/window))
+
+(defn md-preview [text]
+  [:div.markdown
+   {:dangerouslySetInnerHTML
+    #js {:__html (.sanitize preview-sanitizer
+                            (.render preview-parser (or text ""))
+                            #js {:USE_PROFILES #js {:html true}})}}])
+
 ;; ---------- state ----------
 
 (defonce state (r/atom {:token nil            ;; Bearer-токен
@@ -127,7 +143,8 @@
   [:div.card
    [:strong (:title n)]
    (when (:event_id n) [:div.muted "Событие: " (:event_id n)])
-   [:div (:body n)]
+   ;; html приходит с сервера (yc.markdown, jsoup-sanitized)
+   [:div.markdown {:dangerouslySetInnerHTML #js {:__html (or (:body_html n) "")}}]
    [:div (map tag-badge (:tags n))]
    [:button.danger {:on-click #(delete-note! (:id n))} "Удалить"]])
 
@@ -162,6 +179,10 @@
              :on-change #(swap! state assoc-in [:note-form :title] (-> % .-target .-value))}]
     [:textarea {:placeholder "Текст (можно с тегами в поле ниже)" :value (get-in @state [:note-form :body])
                 :on-change #(swap! state assoc-in [:note-form :body] (-> % .-target .-value))}]
+    (when (seq (:body @state))
+      [:div.preview
+       [:strong "Предпросмотр:"]
+       [md-preview (get-in @state [:note-form :body])]])
     [:div.two-col
      [:input {:placeholder "Теги через запятую" :value (get-in @state [:note-form :tags])
               :on-change #(swap! state assoc-in [:note-form :tags] (-> % .-target .-value))}]

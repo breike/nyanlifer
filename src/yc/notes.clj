@@ -2,14 +2,17 @@
   "Заметки: CRUD, связь с событием (event_id), поиск, теги."
   (:require [yc.db :as db]
             [yc.tags :as tags]
+            [yc.markdown :as md]
             [yc.util :as util]))
 
 (defn note-row->map
+  "row -> map с тегами и HTML-версией body (для рендера на фронте)."
   [row]
   (when row
     (let [id (:id row)]
       (assoc (into {} row)
-             :tags (tags/tags-of-note id)))))
+             :tags (tags/tags-of-note id)
+             :body_html (md/md->html (:body row))))))
 
 (defn list-notes
   ([user-id] (list-notes user-id nil nil))

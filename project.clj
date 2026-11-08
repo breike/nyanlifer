@@ -6,6 +6,8 @@
                  [ring/ring-jetty-adapter "1.12.2"]
                  [ring/ring-json "0.5.1"]
                  [cheshire "5.13.0"]
+                 [markdown-clj "1.12.10"]
+                 [org.jsoup/jsoup "1.18.1"]
                  [org.xerial/sqlite-jdbc "3.46.1.3"]
                  [org.clojure/java.jdbc "0.7.12"]]
   :source-paths ["src"]

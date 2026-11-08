@@ -6,6 +6,8 @@
     "shadow-cljs": "^2.28.0"
   },
   "dependencies": {
+    "dompurify": "^3.4.17",
+    "markdown-it": "^15.0.3",
     "react": "^18.2.0",
     "react-dom": "^18.2.0"
   }
