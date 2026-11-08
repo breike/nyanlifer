@@ -1,5 +1,8 @@
-(ns yc.calendars
-  "CalDAV-клиент Яндекс.Календаря. Порт shared/caldav_client.py; stdlib-only."
+(ns yc.integrations.yandex
+  "Модуль интеграции с Яндекс.Календарём (CalDAV): HTTP/XML/ICS,
+  list-calendars, push/delete событий. База — yc.calendar (ядро календаря);
+  этот модуль лишь пушит и тянет данные.
+  Порт shared/caldav_client.py; stdlib-only."
   (:require [clojure.string :as str]
             [clojure.xml :as xml]
             [yc.util :as util])
@@ -197,10 +200,10 @@
              (mapv (fn [resp] {:href (xml-tags-href resp)
                                :name (or (text-of (first (xml-tags resp "displayname"))) "")})))))))
 
-(defn create-event
-  "Создаёт событие в Яндекс.Календаре. start — 'ГГГГ-ММ-ДД [ЧЧ:ММ]'.
-  duration_min — для date-time. Возвращает map события или nil при ошибке."
-  [server login password summary start-s {:keys [duration_min desc loc calendar_href] :as opts}]
+(defn push-event
+  "Пушит событие в Яндекс.Календарь (PUT .ics). Возвращает map с результатом
+  создания (uid, url, calendar, и т.п.). Бросает ExceptionInfo с :yc/error."
+  [server login password summary start-s {:keys [duration_min desc loc calendar_href]}]
   (let [calendars (list-calendars server login password)
         selected (or (and calendar_href
                           (first (filter #(or (= (:href %) calendar_href)
@@ -241,3 +244,24 @@
          :calendar (:href selected)}
         (throw (ex-info (str "PUT: HTTP " (:status res))
                         {:yc/error :http :status (:status res) :body (:body res)}))))))
+
+(defn credentials
+  "Креды Яндекса из env: {:server :login :password}, или nil если не заданы.
+  Пустые строки считаются незаданными."
+  []
+  (let [cred {:server (or (seq (System/getenv "YANDEX_CALDAV_SERVER")) default-server)
+              :login (seq (System/getenv "YANDEX_CALDAV_LOGIN"))
+              :password (seq (System/getenv "YANDEX_CALDAV_PASSWORD"))}]
+    (when (and (:login cred) (:password cred))
+      cred)))
+
+(defn delete-event
+  "Удаляет .ics на сервере (DELETE по url). Бросает ExceptionInfo с :yc/error
+  (сетевые ошибки) или :http (не-2xx)."
+  [server login password url]
+  (let [res (http-request server login password "DELETE" url nil
+                          {"Content-Type" "text/calendar; charset=utf-8"}
+                          30000)]
+    (when (>= (:status res) 400)
+      (throw (ex-info (str "DELETE: HTTP " (:status res))
+                      {:yc/error :http :status (:status res) :body (:body res)})))))

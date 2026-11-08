@@ -1,6 +1,6 @@
 # nyanlifer
 
-Единое Clojure-приложение: **Яндекс.Календарь (CalDAV) + заметки + система тегов,**
+Единое Clojure-приложение: **календарь событий + заметки + система тегов,**
 объединяющая события и заметки. Переписанный на Clojure аналог
 `../yandex-calendar-web` (Python: 4 микросервиса + shared/caldav_client.py).
 
@@ -8,11 +8,18 @@
 без отдельного auth/calendar/notes сервисов. Функциональность + система тегов
 (новое).
 
+**Календарь самодостаточен** (`yc.calendar`: события, теги, поиск, связь с
+заметками хранятся локально в SQLite). **Яндекс.Календарь — лишь модуль
+интеграции** (`yc.integrations.yandex`): синхронизирует локальные события с
+CalDAV-сервером по опциональным кредам. Без кредов события полноценно
+создаются/списком/фильтруются локально (`POST /events` → 201).
+
 ## Возможности
 
 - **Заметки** — CRUD, полнотекстовый поиск (`?q=`), связь с событием (`event_id`).
-- **События** — создание через CalDAV (Yandex CalDAV PROPFIND/PUT, WebDAV),
-  локальная история в SQLite.
+- **События** — создаются локально в SQLite (ядро календаря, без внешних
+  зависимостей); при заданных кредах дублируются в Яндекс.Календарь
+  (CalDAV PROPFIND/PUT, WebDAV) опционально.
 - **Теги** — единая система для заметок и событий: фильтр `?tag=` объединяет
   оба типа (например, тег `проект-X` показывает и заметки, и события проекта).
 - **Связь заметка ↔ событие**:
@@ -98,17 +105,22 @@ lein run
 
 Ответ заметки: `{id, title, body, event_id, tags, created_at, updated_at}`.
 
-### События (CalDAV)
+### События (календарь)
 
 | Метод | Путь | Описание |
 |---|---|---|
-| GET | `/calendars` | список календарей (CalDAV PROPFIND) |
+| GET | `/calendars` | список календарей (CalDAV PROPFIND; нужны креды Яндекса) |
 | POST | `/events` | создать событие: `{summary, start, duration?, desc?, loc?, calendar_href?, tags?}` |
-| GET | `/events?q=&tag=` | локальная история событий (фильтр по тегу) |
+| GET | `/events?q=&tag=` | события (фильтр по тегу/поиск) |
 | GET | `/events/{uid}` | событие + `{tags, notes: [id..]}` (связанные заметки) |
 | GET | `/events/{uid}/notes` | связанные заметки (обратная связь) |
+| DELETE | `/events/{uid}` | удалить событие (яндексовский .ics — best-effort) |
 
 `start` — `ГГГГ-ММ-ДД` (весь день) или `ГГГГ-ММ-ДД ЧЧ:ММ`.
+
+Событие всегда создаётся локально. Если заданы `YANDEX_CALDAV_LOGIN/PASSWORD`,
+оно также пушится в Яндекс.Календарь (и запись получает `url`/`calendar_href`);
+при неудачном пуше локальное событие откатывается.
 
 ### Теги
 
@@ -196,7 +208,7 @@ curl -s localhost:8000/          # SPA index.html
 ## Тесты
 
 ```bash
-lein run -m yc.test-runner    # 10 тестов, 52 assertion, автономные (auth/tags/notes/events/API)
+lein run -m yc.test-runner    # 12 тестов, 63 assertion, автономные (auth/tags/notes/calendar/API)
 ```
 
 Бэкенд также собирается в standalone-банку: `lein uberjar` → `java -jar
@@ -216,9 +228,10 @@ src/yc/
   auth.clj      — register/login/logout/verify, токены
   tags.clj      — теги: CRUD, привязка к заметкам/событиям
   notes.clj     — заметки: CRUD + event_id + поиск + теги
-  calendars.clj — CalDAV-клиент (PROPFIND, build_ics, create_event)
-  events.clj    — события: локальная история + теги + связь с заметками
-  api.clj       — compojure-маршруты, JSON, error-handling
+  calendar.clj  — ядро календаря: события в SQLite, теги, поиск, связь с заметками (самодостаточно)
+  integrations/
+    yandex.clj  — модуль интеграции с Яндекс.Календарём (CalDAV PROPFIND/PUT/DELETE, ICS, креды)
+  api.clj       — compojure-маршруты, JSON, error-handling (связывает ядро и интеграцию)
 test/yc/        — clojure.test
 ```
 
@@ -230,8 +243,8 @@ test/yc/        — clojure.test
 | БД | 3 SQLite-файла | 1 SQLite-файл |
 | Теги | нет | **есть** (note_tags, event_tags) |
 | Связь заметка↔событие | только `event_id` у заметки | `event_id` + обратная `/events/{uid}/notes` |
-| CalDAV | urllib (стандартная библиотека) | java.net.http (WebDAV PROPFIND/PUT) |
-| UI | Jinja2 (Python) | (фаза 2: ClojureScript) |
+| CalDAV | urllib (стандартная библиотека), события нельзя без него | java.net.http (WebDAV PROPFIND/PUT/DELETE); календарь самодостаточен, Яндекс — модуль интеграции |
+| UI | Jinja2 (Python) | ClojureScript (reagent) |
 
 ## Безопасность
 

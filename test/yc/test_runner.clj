@@ -13,6 +13,6 @@
   (require 'yc.db)
   ((resolve 'yc.db/init-db!))
   ;; Теперь загрузить модули (используют db)
-  (require 'yc.auth-test 'yc.tags-notes-test 'yc.events-test 'yc.api-test)
-  (let [result (t/run-tests 'yc.auth-test 'yc.tags-notes-test 'yc.events-test 'yc.api-test)]
+  (require 'yc.auth-test 'yc.tags-notes-test 'yc.calendar-test 'yc.api-test)
+  (let [result (t/run-tests 'yc.auth-test 'yc.tags-notes-test 'yc.calendar-test 'yc.api-test)]
     (System/exit (if (and (zero? (:fail result)) (zero? (:error result))) 0 1))))

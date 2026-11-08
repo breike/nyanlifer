@@ -3,7 +3,8 @@
   (:require [clojure.test :refer [deftest is testing]]
             [ring.mock.request :as mock]
             [cheshire.core :as json]
-            [yc.api :as api]))
+            [yc.api :as api]
+            [yc.integrations.yandex :as yandex]))
 
 (defn- req [method path token body]
   (let [r (mock/request method path)
@@ -50,3 +51,42 @@
       (let [r (api/app (req :get (str "/notes/" created-id) token nil))]
         (is (= 200 (:status r)))
         (is (= "Заметка" (:title (body r))))))))
+
+;; ---- календарь самодостаточен (без Яндекс-кредов) ----
+
+(deftest local-calendar
+  (testing "POST /events без кредов создаёт событие локально"
+    (let [login "lcl@test.ru" pass "p"]
+      (is (= 201 (:status (api/app (req :post "/register" nil {:login login :password pass})))))
+      (let [token (get-in (body (api/app (req :post "/login" nil {:login login :password pass}))) [:token])]
+        (with-redefs [yandex/credentials (constantly nil)
+                      yandex/push-event (fn [& _] (throw (ex-info "не должно вызываться" {})))]
+          (let [r (api/app (req :post "/events" token {:summary "Локальное событие"
+                                                       :start "2026-12-05 10:00"
+                                                       :duration 45 :tags ["локо"]}))]
+            (is (= 201 (:status r)))
+            (let [ev (body r)]
+              (is (= "Локальное событие" (:summary ev)))
+              (is (= "45 мин" (:duration ev)))
+              (is (= ["локо"] (:tags ev)))))
+          ;; и видно в списке
+          (let [l (api/app (req :get "/events" token nil))]
+            (is (= 200 (:status l)))
+            (is (= 1 (count (:events (body l)))))))))))
+
+(deftest push-failure-rolls-back
+  (testing "POST /events при неудавшемся пуше в Яндекс откатывает локальную запись"
+    (let [login "push@test.ru" pass "p"]
+      (is (= 201 (:status (api/app (req :post "/register" nil {:login login :password pass})))))
+      (let [token (get-in (body (api/app (req :post "/login" nil {:login login :password pass}))) [:token])]
+        (with-redefs [yandex/credentials (constantly {:server "https://caldav.yandex.ru"
+                                                      :login "x" :password "y"})
+                      yandex/push-event (fn [& _] (throw (ex-info "401"
+                                                                  {:yc/error :auth})))]
+          (let [r (api/app (req :post "/events" token {:summary "Плохое событие"
+                                                       :start "2026-12-05 10:00"}))]
+            (is (= 401 (:status r))))
+          ;; откат: событий не осталось
+          (let [l (api/app (req :get "/events" token nil))]
+            (is (= 200 (:status l)))
+            (is (= 0 (count (:events (body l)))))))))))

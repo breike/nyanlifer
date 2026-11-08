@@ -9,11 +9,12 @@
             [cheshire.core :as json]
             [clojure.string :as str]
             [clojure.java.io :as io]
+            [yc.db :as db]
             [yc.auth :as auth]
             [yc.tags :as tags]
             [yc.notes :as notes]
-            [yc.events :as events]
-            [yc.calendars :as cal])
+            [yc.calendar :as calendar]
+            [yc.integrations.yandex :as yandex])
   (:import (java.io File)))
 
 ;; ---------- helpers ----------
@@ -58,6 +59,18 @@
   (or (get (body-params request) k)
       (get-in request [:params k])
       (get-in request [:form-params k])))
+
+(defn- yandex-error-response
+  "Маппинг ExceptionInfo с :yc/error из модуля интеграции Яндекса -> JSON-ответ.
+  :auth -> 401, :http/:network -> 502, :none -> 404, прочее -> 500."
+  [e]
+  (let [{:keys [yc/error status]} (ex-data e)]
+    (case error
+      :auth (json-response 401 {:error "Не удалось авторизоваться в Яндекс.Календаре"})
+      :http (json-response 502 {:error (str "Ошибка CalDAV: HTTP " status)})
+      :network (json-response 502 {:error (ex-message e)})
+      :none (json-response 404 {:error (ex-message e)})
+      (json-response 500 {:error (ex-message e)}))))
 
 ;; ---------- routes ----------
 
@@ -138,59 +151,77 @@
         (json-response 404 {:error "Заметка не найдена"}))
       (unauthorized)))
 
-  ;; ---- events ----
+  ;; ---- events (календарь) ----
   (GET "/calendars" request
     (if-let [user (require-user request)]
-      (if-let [cred (events/yandex-credentials)]
+      (if-let [cred (yandex/credentials)]
         (try
-          (json-response 200 {:calendars (cal/list-calendars (:server cred)
-                                                              (:login cred)
-                                                              (:password cred))})
+          (json-response 200 {:calendars (yandex/list-calendars (:server cred)
+                                                               (:login cred)
+                                                               (:password cred))})
           (catch clojure.lang.ExceptionInfo e
-            (let [{:keys [yc/error status]} (ex-data e)]
-              (case error
-                :auth (json-response 401 {:error "Не удалось авторизоваться в Яндекс.Календаре"})
-                :http (json-response 502 {:error (str "Ошибка CalDAV: HTTP " status)})
-                :network (json-response 502 {:error (ex-message e)})
-                :none (json-response 404 {:error (ex-message e)})
-                (json-response 500 {:error (ex-message e)}))))
+            (yandex-error-response e))
           (catch Exception e
             (json-response 500 {:error (ex-message e)})))
         (json-response 500 {:error "YANDEX_CALDAV_LOGIN/PASSWORD не заданы"}))
       (unauthorized)))
   (GET "/events" [q tag :as request]
     (if-let [user (require-user request)]
-      (json-response 200 {:events (events/list-events (:user_id user) q tag)})
+      (json-response 200 {:events (calendar/list-events (:user_id user) q tag)})
       (unauthorized)))
   (POST "/events" request
     (if-let [user (require-user request)]
       (let [p (body-params request)]
         (if (seq (str/trim (str (:summary p))))
-          (try
-            (json-response 201 (events/create-event! (:user_id user) p))
-            (catch clojure.lang.ExceptionInfo e
-              (let [{:keys [yc/error status]} (ex-data e)]
-                (case error
-                  :config (json-response 500 {:error "YANDEX_CALDAV_LOGIN/PASSWORD не заданы"})
-                  :auth (json-response 401 {:error "Не удалось авторизоваться в Яндекс.Календаре"})
-                  :http (json-response 502 {:error (str "Ошибка CalDAV: HTTP " status)})
-                  :none (json-response 404 {:error (ex-message e)})
-                  (json-response 500 {:error (ex-message e)}))))
-            (catch Exception e
-              (json-response 500 {:error (ex-message e)})))
+          (let [created (calendar/create-event! (:user_id user) p)]
+            ;; Локально-сперва: событие создано в ядре; пушим на Яндекс,
+            ;; если креды заданы. Неудача откатывает локальную запись.
+            (if-let [cred (yandex/credentials)]
+              (try
+                (let [remote (yandex/push-event (:server cred) (:login cred)
+                                                (:password cred)
+                                                (:summary p) (:start p)
+                                                {:duration_min (:duration p)
+                                                 :desc (:desc p) :loc (:loc p)
+                                                 :calendar_href (:calendar_href p)})]
+                  (json-response 201 (calendar/apply-remote! (:user_id user)
+                                                             (:uid created) remote)))
+                (catch clojure.lang.ExceptionInfo e
+                  (calendar/delete-event! (:user_id user) (:uid created))
+                  (yandex-error-response e))
+                (catch Exception e
+                  (calendar/delete-event! (:user_id user) (:uid created))
+                  (json-response 500 {:error (ex-message e)})))
+              (json-response 201 created)))
           (json-response 400 {:error "summary обязателен"})))
       (unauthorized)))
   (GET "/events/:uid" [uid :as request]
     (if-let [user (require-user request)]
-      (if-let [event (events/get-event (:user_id user) uid)]
+      (if-let [event (calendar/get-event (:user_id user) uid)]
         (json-response 200 event)
         (json-response 404 {:error "Событие не найдено"}))
+      (unauthorized)))
+  (DELETE "/events/:uid" [uid :as request]
+    (if-let [user (require-user request)]
+      (let [row (first (db/query ["SELECT uid, url FROM events WHERE uid=? AND user_id=?" uid
+                                  (:user_id user)]))]
+        (if row
+          (do
+            ;; Локально удаляем всегда; Яндекс — best-effort.
+            (calendar/delete-event! (:user_id user) uid)
+            (when-let [cred (yandex/credentials)]
+              (when (:url row)
+                (try (yandex/delete-event (:server cred) (:login cred)
+                                          (:password cred) (:url row))
+                     (catch Exception _ nil))))
+            (json-response 200 {:ok true}))
+          (json-response 404 {:error "Событие не найдено"})))
       (unauthorized)))
 
   ;; события -> связанные заметки
   (GET "/events/:uid/notes" [uid :as request]
     (if-let [user (require-user request)]
-      (if-let [event (events/get-event (:user_id user) uid)]
+      (if-let [event (calendar/get-event (:user_id user) uid)]
         (json-response 200 {:notes (mapv #(notes/get-note (:user_id user) %)
                                          (:notes event))})
         (json-response 404 {:error "Событие не найдено"}))
