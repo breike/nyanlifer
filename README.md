@@ -178,6 +178,12 @@ npx shadow-cljs watch app
 Структура UI: `src-cljs/yc/ui.cljs`, конфиг `shadow-cljs.edn`,
 `resources/public/index.html`.
 
+## Деплой
+
+Пошаговое развёртывание на продакшн-сервере (systemd, без reverse-proxy):
+см. **[DEPLOY.md](DEPLOY.md)** — сборка jar, установка, юнит
+`deploy/nyanlifer.service`, креды, обновление, бэкапы, мониторинг, TLS (опц.).
+
 ## Контейнер (Podman/Docker)
 
 Многоступенчатый `Containerfile`: сборка (node 22 + shadow-cljs → CLJS,

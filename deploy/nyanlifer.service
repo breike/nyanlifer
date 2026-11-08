@@ -1,0 +1,61 @@
+[Unit]
+Description=nyanlifer — календарь событий + заметки + теги (Clojure, Jetty)
+Documentation=file:/opt/nyanlifer/DEPLOY.md
+# Запуск после того, как поднялась сеть; restarted
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+# Тип сообщения: JVM получает SIGTERM (graceful shutdown Jetty)
+Type=simple
+# Запускаем от выделенного непривилегированного пользователя
+User=nyanlifer
+Group=nyanlifer
+
+# --- рабочая директория: тут лежат DEPLOY.md и (опц.) data/db.sqlite ---
+WorkingDirectory=/opt/nyanlifer
+
+# --- исполняемый jar (standalone, собран lein uberjar) ---
+ExecStart=/usr/bin/java -jar /opt/nyanlifer/nyanlifer.jar
+
+# --- переменные окружения ---
+# HTTP-порт (без TLS-прокси слушаем напрямую)
+Environment=YC_PORT=8000
+# Путь к SQLite-файлу (создаётся автоматически, если нет)
+Environment=YC_DB_PATH=/var/lib/nyanlifer/db.sqlite
+# TTL токена авторизации, сек (24 ч)
+Environment=AUTH_TOKEN_TTL=86400
+# Креды Яндекса — ТОЛЬКО через env, см. DEPLOY.md (пароль приложения)
+Environment=YANDEX_CALDAV_SERVER=https://caldav.yandex.ru
+#Environment=YANDEX_CALDAV_LOGIN=user@yandex.ru
+#Environment=YANDEX_CALDAV_PASSWORD=xxxx-xxxx-xxxx-xxxx
+
+# --- политика перезапуска ---
+Restart=on-failure
+RestartSec=5
+# Не стартовать ранее, чем через 10 сек после запуска (защита от panic-restart loop)
+StartLimitIntervalSec=0
+
+# --- безопасность ---
+# Строгая изоляция (рекомендуется, не обязательно для работы)
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/nyanlifer
+ProtectHome=true
+# Порт слушается на всех интерфейсах (*:8000) — LAN/локальная сеть имеет
+# доступ. Чтобы ограничить ТОЛЬКО loopback (127.0.0.1), добавь:
+#   PrivateNetwork=true
+#   IPAddressAllow=127.0.0.1
+# (см. DEPLOY.md §5 — обе строки обязательны вместе)
+# Стандартные потоки
+StandardOutput=journal
+StandardError=journal
+# Обрезать лишние переменные из окружения снаружи
+EnvironmentFile=-/etc/nyanlifer/env
+
+# --- лимиты ---
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target
