@@ -213,6 +213,71 @@ curl -s localhost:8000/          # SPA index.html
 - **UI** собран внутри образа (`/js/main.js`), раздаётся из jar.
 - Docker: `docker build -t nyanlifer .` — тот же Containerfile.
 
+### Деплой в podman с nginx (reverse-proxy + TLS)
+
+Вариант с nginx-контейнером перед приложением: наружу торчит nginx (80/443),
+который проксирует на внутренний порт 8000 контейнера `nyanlifer`. Так можно
+добавить TLS (certbot) и не экспонировать приложение напрямую.
+
+**Сеть podman.** Контейнеры в одной пользовательской сети видят друг друга по
+имени:
+
+```bash
+# 1) сеть + контейнер приложения (внутренний порт 8000, наружу НЕ пробрасываем)
+podman network create yc-net
+
+podman run -d --name nyanlifer \
+  --network yc-net \
+  -v yc-data:/data \
+  -e YANDEX_CALDAV_LOGIN='user@yandex-team.ru' \
+  -e YANDEX_CALDAV_PASSWORD='xxxx-xxxx-xxxx-xxxx' \
+  nyanlifer
+
+# 2) nginx-контейнер (reverse-proxy), проброс 80/443 наружу
+podman run -d --name yc-nginx \
+  --network yc-net \
+  -p 80:80 -p 443:443 \
+  -v ./nginx.conf:/etc/nginx/conf.d/nyanlifer.conf:ro \
+  docker.io/library/nginx:alpine
+```
+
+**nginx.conf** (прокси на имя контейнера `nyanlifer:8000`):
+
+```nginx
+server {
+    listen 80;
+    server_name _;
+
+    location / {
+        proxy_pass http://nyanlifer:8000;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 60s;
+    }
+}
+```
+
+- `proxy_pass http://nyanlifer:8000` — имя контейнера из yc-net (DNS внутри сети).
+- **TLS** — добавь `listen 443 ssl` + `ssl_certificate`/`ssl_certificate_key`
+  (certbot для podman: `certbot certonly --standalone` или volume с
+  сертификатами). Тогда `X-Forwarded-Proto $scheme` уже проставлен.
+- **health** — nginx-контейнер сам по себе не ходит в /health (можно добавить
+  `location = /health { proxy_pass http://nyanlifer:8000/health; }` или внешний
+  check через `curl localhost/health`).
+
+```bash
+# проверить
+curl -s localhost/health      # {"status":"ok"}  (через nginx)
+curl -s localhost/            # SPA index.html
+podman ps
+```
+
+> Примечание: приложение слушает 8000 внутри сети (`YC_PORT=8000` по умолчанию),
+> наружу проброшен только nginx (80/443). Если nginx не нужен — запускай
+> `podman run -p 8000:8000` как в базовом примере выше.
+
 ## Тесты
 
 ```bash
